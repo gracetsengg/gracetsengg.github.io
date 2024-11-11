@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NYC Food Truck Tracker</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        body { margin: 0; font-family: Arial, sans-serif; }
+        #map { height: 100vh; }
+        .food-item { width: 50px; height: auto; margin-right: 10px; vertical-align: middle; }
+        #welcome-screen { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            height: 100vh; 
+            background-color: #d0e8d0;
+        }
+        #registrationForm { 
+            display: none; 
+            background-color: #c0e0c0;
+            padding: 20px; 
+            border-radius: 5px; 
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2); 
+        }
+    </style>
+</head>
+<body>
+
+<div id="welcome-screen">
+    <h1>🍔 Welcome to the NYC Food Truck Tracker! 🍟</h1>
+    <h3>Are you looking for bites or making bites? 🌮</h3>
+    <button id="lookingForBites">Looking for Bites</button>
+    <button id="makingBites">Making Bites</button>
+</div>
+
+<div id="registrationForm">
+    <h2>Register Your Food Truck</h2>
+    <label for="name">Food Truck Name:</label>
+    <input type="text" id="name" required>
+    <br>
+    <label for="address">Address:</label>
+    <input type="text" id="address" required>
+    <br>
+    <label for="lat">Latitude:</label>
+    <input type="text" id="lat" required>
+    <br>
+    <label for="lon">Longitude:</label>
+    <input type="text" id="lon" required>
+    <br>
+    <label for="operatingHours">Operating Hours:</label>
+    <input type="text" id="operatingHours" required>
+    <br>
+    <h3>Menu Items:</h3>
+    <div id="foodItemsContainer">
+        <div class="food-item-entry">
+            <label>Food Item Name:</label>
+            <input type="text" class="foodItemName" required>
+            <label>Price:</label>
+            <input type="number" class="foodItemPrice" required>
+            <label>Image:</label>
+            <input type="file" class="foodItemImage" accept="image/*" required>
+        </div>
+    </div>
+    <button id="addFoodItem">Add Another Food Item</button>
+    <br><br>
+    <button id="submitTruck">Register Food Truck</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+<script>
+    // Initialize the map
+    const map = L.map('map').setView([40.73061, -73.935242], 12);
+
+    // Set up tile layer
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+    }).addTo(map);
+
+    // Load existing food trucks from localStorage or initialize with sample data
+    const foodTrucks = JSON.parse(localStorage.getItem('foodTrucks')) || [];
+    const markers = []; // Array to keep track of markers
+
+    // Function to add a food truck marker to the map
+    function addFoodTruckMarker(truck) {
+        const foodTruckIcon = L.icon({
+            iconUrl: 'food_truck_icon.png', // Path to your food truck icon
+            iconSize: [38, 38],
+            iconAnchor: [19, 38],
+            popupAnchor: [0, -38]
+        });
+
+        const marker = L.marker([truck.lat, truck.lon], { icon: foodTruckIcon }).addTo(map);
+        markers.push(marker); // Store marker reference in markers array
+
+        // Create content for the popup
+        const foodList = truck.food_items.map(item => 
+            `<li style="margin-bottom: 10px;">
+                <img class="food-item" src="${item.image}" alt="${item.name}">
+                ${item.name} - $${item.price}
+            </li>`
+        ).join('');
+        const reviewsList = truck.reviews.map(review => `<li>${review}</li>`).join('');
+
+        // Bind the popup to the marker with a delete button
+        marker.bindPopup(`
+            <div>
+                <strong>${truck.name}</strong>
+                <p><em>${truck.address}</em></p>
+                <p>Operating Hours: ${truck.operating_hours}</p>
+                <h4>Menu:</h4>
+                <ul>${foodList}</ul>
+                <h4>Reviews:</h4>
+                <ul>${reviewsList}</ul>
+                <button onclick="removeTruck('${truck.name}', this)">Remove Truck</button>
+            </div>
+        `);
+    }
+
+    // Load markers for existing food trucks
+    foodTrucks.forEach(truck => addFoodTruckMarker(truck));
+
+    // Handle welcome screen buttons
+    document.getElementById('lookingForBites').addEventListener('click', function() {
+        document.getElementById('welcome-screen').style.display = 'none';
+        document.getElementById('map').style.display = 'block';
+    });
+
+    document.getElementById('makingBites').addEventListener('click', function() {
+        document.getElementById('welcome-screen').style.display = 'none';
+        document.getElementById('registrationForm').style.display = 'block';
+    });
+
+    // Add more food item entry fields
+    document.getElementById('addFoodItem').addEventListener('click', function() {
+        const container = document.createElement('div');
+        container.classList.add('food-item-entry');
+        container.innerHTML = `
+            <label>Food Item Name:</label>
+            <input type="text" class="foodItemName" required>
+            <label>Price:</label>
+            <input type="number" class="foodItemPrice" required>
+            <label>Image:</label>
+            <input type="file" class="foodItemImage" accept="image/*" required>
+        `;
+        document.getElementById('foodItemsContainer').appendChild(container);
+    });
+
+    // Handle submitting the registration form
+    document.getElementById('submitTruck').addEventListener('click', async function() {
+        const name = document.getElementById('name').value;
+        const address = document.getElementById('address').value;
+        const lat = parseFloat(document.getElementById('lat').value);
+        const lon = parseFloat(document.getElementById('lon').value);
+        const operatingHours = document.getElementById('operatingHours').value;
+
+        // Get food item data
+        const foodItems = [];
+        const itemEntries = document.querySelectorAll('.food-item-entry');
+        for (const entry of itemEntries) {
+            const itemName = entry.querySelector('.foodItemName').value;
+            const itemPrice = entry.querySelector('.foodItemPrice').value;
+            const itemImageInput = entry.querySelector('.foodItemImage');
+            
+            // Convert the uploaded image file to a data URL
+            const itemImage = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.readAsDataURL(itemImageInput.files[0]);
+            });
+            
+            foodItems.push({ name: itemName, price: itemPrice, image: itemImage });
+        }
+
+        const newTruck = {
+            name,
+            lat,
+            lon,
+            food_items: foodItems,
+            reviews: [],
+            address,
+            operating_hours: operatingHours,
+            rating: 0 // New trucks start with no rating
+        };
+
+        // Add the new truck to the foodTrucks array and save to localStorage
+        foodTrucks.push(newTruck);
+        localStorage.setItem('foodTrucks', JSON.stringify(foodTrucks));
+
+        // Add the new truck marker to the map
+        addFoodTruckMarker(newTruck);
+
+        // Clear the form fields
+        document.getElementById('name').value = '';
+        document.getElementById('address').value = '';
+        document.getElementById('lat').value = '';
+        document.getElementById('lon').value = '';
+        document.getElementById('operatingHours').value = '';
+        document.getElementById('foodItemsContainer').innerHTML = `
+            <div class="food-item-entry">
+                <label>Food Item Name:</label>
+                <input type="text" class="foodItemName" required>
+                <label>Price:</label>
+                <input type="number" class="foodItemPrice" required>
+                <label>Image:</label>
+                <input type="file" class="foodItemImage" accept="image/*" required>
+            </div>
+        `;
+
+        // Hide registration form and show map
+        document.getElementById('registrationForm').style.display = 'none';
+        document.getElementById('map').style.display = 'block';
+    });
+
+    // Function to remove a food truck
+    function removeTruck(truckName, button) {
+        const index = foodTrucks.findIndex(truck => truck.name === truckName);
+        if (index !== -1) {
+            foodTrucks.splice(index, 1); // Remove truck from array
+            localStorage.setItem('foodTrucks', JSON.stringify(foodTrucks)); // Update localStorage
+
+            // Remove the marker associated with the truck from the map
+            markers.forEach((marker, i) => {
+                if (marker.getPopup().getContent().includes(truckName)) {
+                    map.removeLayer(marker);
+                    markers.splice(i, 1); // Remove marker from markers array
+                }
+            });
+            button.closest('div').remove(); // Remove the popup button itself
+        }
+    }
+</script>
+
+</body>
+</html>
